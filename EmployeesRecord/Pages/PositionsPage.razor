@@ -1,0 +1,263 @@
+﻿@page "/positions"
+
+@using EmployeesRecord.Data
+@using EmployeesRecord.Services.Interfaces
+@using JsonSerializer = System.Text.Json.JsonSerializer
+
+@inject IPositionService positionService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Positions</PageTitle>
+
+<h1>Positions</h1>
+
+<table class="table">
+    <thead>
+    <tr>
+        <th>Id</th>
+        <th>Position Name</th>
+    </tr>
+    </thead>
+    <tbody>
+    @foreach (var position in _positions)
+    {
+        <tr>
+            <td class="positionField identifier">@position.Id</td>
+            <td class="positionField">@position.Name</td>
+            <td class="positionField">
+                <button class="btn btn-primary" @onclick="() => { ShowUpdatingEmployee(position.Id); }" data-bs-target="#exampleModal">
+                    Edit
+                </button>
+                <button class="btn btn-primary" data-bs-toggle="modal" @onclick="() => DeletePositionAsync(position.Id)" data-bs-target="#exampleModal">
+                    Delete
+                </button>
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+<ConfirmationModal @ref="confirmationModal" AdditionalText="Be aware, that deleting the position will cause deleting all assigned workers to it."></ConfirmationModal>
+
+<ResultModal @ref="resultModal"></ResultModal>
+<div>
+    <button type="button" @onclick="ShowAddingNewPosition"l class="btn btn-primary">
+        Add new Position
+    </button>
+</div>
+
+<div style="margin-top: 30px;">
+    <InputFile OnChange="HandleFileSelection" />
+</div>
+
+<div style="margin-top: 15px;">
+    <button type="button" @onclick="ReadJsonFile" l class="btn btn-primary">
+        Upload JSON
+    </button>
+</div>
+
+<!--New Position Form-->
+<table class="table" style="display: @(isAddingNewPosition ? "block" : "none")">
+    <tbody>
+    <tr>
+        <td class="new-record-field">
+            <b>Position Name: </b>
+            <input type="text" @bind="positionToAdd.Name" class="form-control"/>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <button @onclick="Submit" class="btn btn-primary">
+                Submit
+            </button>
+            <button @onclick="() => { isAddingNewPosition = false; }" class="btn btn-primary">
+                Cancel
+            </button>
+        </td>
+    </tr>
+    </tbody>
+</table>
+
+<script>
+    function showResultModal() {
+        $('#resultModal').modal('show')
+    }
+</script>
+
+@code {
+    private List<Position> _positions = new List<Position>();
+    
+    private ConfirmationModal confirmationModal;
+    private ResultModal resultModal;
+
+    private bool isAddingNewPosition;
+    private Position positionToAdd = new Position();
+
+    private string jsonContent;
+    private IBrowserFile selectedFile;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _positions = await GetPositionsAsync();
+
+        StateHasChanged();
+    }
+
+    private async Task DeletePositionAsync(int positionId)
+    {
+        var confirmation = await confirmationModal.ShowConfirmationAsync();
+
+        if (confirmation)
+        {
+            try
+            {
+                await positionService.DeletePositionAsync(positionId);
+
+                resultModal.ResultText = "Operation has finished successfuly";
+                resultModal.ResultType = "Success";
+
+                resultModal.Refresh();
+
+                await JSRuntime.InvokeVoidAsync("showResultModal");
+            }
+            catch (Exception e)
+            {
+                resultModal.ResultText = "Some Error Happened";
+                resultModal.ResultType = "Error";
+
+                resultModal.Refresh();
+
+                await JSRuntime.InvokeVoidAsync("showResultModal");
+            }
+        }
+
+        _positions = await GetPositionsAsync();
+    }
+
+    public async Task<List<Position>> GetPositionsAsync()
+    {
+        return await positionService.GetPositionsAsync();
+    }
+
+    private void ShowAddingNewPosition()
+    {
+        isAddingNewPosition = true;
+
+        positionToAdd = new Position();
+    }
+
+    private async Task Submit()
+    {
+        try
+        {
+            if (positionToAdd.Id == 0)
+            {
+                await positionService.InsertPositionAsync(positionToAdd);
+            }
+            else
+            {
+                await positionService.UpdatePositionAsync(positionToAdd);
+            }
+
+            resultModal.ResultText = "Operation has finished successfuly";
+            resultModal.ResultType = "Success";
+
+            resultModal.Refresh();
+
+            await JSRuntime.InvokeVoidAsync("showResultModal");
+
+            isAddingNewPosition = false;
+        }
+        catch (ArgumentException ex)
+        {
+            resultModal.ResultText = ex.Message;
+            resultModal.ResultType = "Error";
+
+            resultModal.Refresh();
+
+            await JSRuntime.InvokeVoidAsync("showResultModal");
+        }
+        catch (Exception ex)
+        {
+            resultModal.ResultText = "Some Error Happened";
+            resultModal.ResultType = "Error";
+
+            resultModal.Refresh();
+
+            await JSRuntime.InvokeVoidAsync("showResultModal");
+        }
+
+        _positions = await GetPositionsAsync();
+    }
+
+    private async Task HandleFileSelection(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.GetMultipleFiles().FirstOrDefault();
+
+        _positions = await GetPositionsAsync();
+    }
+
+    private async Task ReadJsonFile()
+    {
+        try
+        {
+            if (selectedFile != null)
+            {
+                var stream = selectedFile.OpenReadStream();
+                using var reader = new StreamReader(stream);
+                jsonContent = await reader.ReadToEndAsync();
+
+                var uploadedPositionNames = JsonSerializer.Deserialize<PositionJSONModel>(jsonContent);
+
+                foreach (var uploadedPositionName in uploadedPositionNames.Positions)
+                {
+                    try
+                    {
+                        await positionService.InsertPositionAsync(new Position() {Name = uploadedPositionName});
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        continue;
+                    }
+                }
+
+                resultModal.ResultText = "Positions were uploaded successfuly";
+                resultModal.ResultType = "Success";
+
+                resultModal.Refresh();
+
+                await JSRuntime.InvokeVoidAsync("showResultModal");
+            }
+            else
+            {
+                resultModal.ResultType = "Error";
+                resultModal.ResultText = "You haven't provided the JSON file";
+
+                resultModal.Refresh();
+
+                await JSRuntime.InvokeVoidAsync("showResultModal");
+            }
+        }
+        catch (Exception ex)
+        {
+            resultModal.ResultText = "Looks like the JSON you've provided is invalid. Please recheck it";
+            resultModal.ResultType = "Error";
+
+            resultModal.Refresh();
+
+            await JSRuntime.InvokeVoidAsync("showResultModal");
+        }
+
+        _positions = await GetPositionsAsync();
+    }
+
+    private async Task ShowUpdatingEmployee(int positionId)
+    {
+        isAddingNewPosition = true;
+        
+        positionToAdd = await positionService.GetPositionAsync(positionId);
+
+        StateHasChanged();
+    }
+
+}

@@ -1,0 +1,332 @@
+﻿@page "/"
+
+@using EmployeesRecord.Data
+@using EmployeesRecord.Services.Interfaces
+@using System.Text.Json
+
+@inject IEmployeeService employeeService
+@inject IPositionService positionService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Employees</PageTitle>
+
+<h1>Employees</h1>
+
+<table class="table">
+    <thead>
+    <tr>
+        <th>Id</th>
+        <th>First Name</th>
+        <th>Last Name</th>
+        <th>Date of Birth</th>
+        <th>Position</th>
+        <th>IP Address</th>
+        <th>IP Country Code</th>
+    </tr>
+    </thead>
+    <tbody>
+    @foreach (var employee in _employees)
+    {
+        <tr>
+            <td class="employeeField identifier">@employee.Id</td>
+            <td class="employeeField">@employee.Name</td>
+            <td class="employeeField">@employee.Surname</td>
+            <td class="employeeField">@employee.BirthDate.ToString("yyyy/MM/dd")</td>
+            <td class="employeeField">@employee.Position.Name</td>
+            <td class="employeeField">@employee.IpAddress</td>
+            <td class="employeeField">@employee.IpCountryCode</td>
+            <td class="employeeField">
+                    <button class="btn btn-primary" @onclick="() => { ShowUpdatingEmployee(employee.Id); }" data-bs-target="#exampleModal">
+                    Edit
+                </button>
+                <button class="btn btn-primary" data-bs-toggle="modal" @onclick="() => DeleteEmployeeAsync(employee.Id)" data-bs-target="#exampleModal">
+                    Delete
+                </button>
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+<ConfirmationModal @ref="confirmationModal"></ConfirmationModal>
+
+<ResultModal @ref="resultModal"></ResultModal>
+
+<div>
+    <button type="button" @onclick="ShowAddingNewEmployee"l class="btn btn-primary">
+        Add new Employee
+    </button>
+</div>
+
+<div style="margin-top: 30px;">
+    <InputFile OnChange="HandleFileSelection" />
+</div>
+
+<div style="margin-top: 15px;">
+    <button type="button" @onclick="ReadJsonFile" l class="btn btn-primary">
+        Upload JSON
+    </button>
+</div>
+
+<!--New Employee Form-->
+<table class="table" style="display: @(isAddingNewEmployee ? "block" : "none")">
+    <tbody>
+    <tr>
+        <td class="new-record-field">
+            <b>First Name: </b>
+            <input type="text" @bind="employeeToAdd.Name" class="form-control"/>
+        </td>
+    </tr>
+    <tr>
+        <td class="new-record-field">
+            <b>Last Name: </b>
+                <input type="text" @bind="employeeToAdd.Surname" class="form-control" />
+        </td>
+    </tr>
+    <tr>
+        <td class="new-record-field">
+            <b>Date of Birth: </b>
+                <input type="date" @bind="employeeToAdd.BirthDate" class="form-control">
+        </td>
+    </tr>
+    <tr>
+        <td class="new-record-field">
+            <b>Position: </b>
+                <select class="form-select" @bind="employeeToAdd.PositionId">
+                @foreach (var position in _positions)
+                {
+                    <option value="@position.Id">@position.Name</option>
+                }
+            </select>
+        </td>
+    </tr>
+    <tr>
+        <td class="new-record-field">
+            <b>IP Address: </b>
+                <input type="text" @bind="employeeToAdd.IpAddress" class="form-control" />
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <button @onclick="Submit" class="btn btn-primary">
+                Submit
+            </button>
+            <button @onclick="() => { isAddingNewEmployee = false; }" class="btn btn-primary">
+                Cancel
+            </button>
+        </td>
+    </tr>
+    </tbody>
+</table>
+
+<script>
+    function showResultModal() {
+        $('#resultModal').modal('show')
+    }
+</script>
+
+@code {
+    private List<Employee> _employees = new List<Employee>();
+    private List<Position> _positions = new List<Position>();
+
+    private ConfirmationModal confirmationModal;
+    private ResultModal resultModal;
+
+    private Employee employeeToAdd = new Employee();
+
+    private string jsonContent;
+    private IBrowserFile selectedFile;
+
+    private bool isAddingNewEmployee;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _employees = await GetEmployeesAsync();
+        _positions = await GetPositionsAsync();
+
+        StateHasChanged();
+    }
+
+    private async Task DeleteEmployeeAsync(int employeeId)
+    {
+        var confirmation = await confirmationModal.ShowConfirmationAsync();
+
+        if (confirmation)
+        {
+            try
+            {
+                await employeeService.DeleteEmployeeAsync(employeeId);
+
+                resultModal.ResultText = "Operator has finished successfuly";
+                resultModal.ResultType = "Success";
+
+                resultModal.Refresh();
+
+                await JSRuntime.InvokeVoidAsync("showResultModal");
+
+                _employees = await GetEmployeesAsync();
+            }
+            catch (Exception e)
+            {
+                resultModal.ResultText = "Some Error Happened";
+                resultModal.ResultType = "Error";
+
+                resultModal.Refresh();
+
+                await JSRuntime.InvokeVoidAsync("showResultModal");
+            }
+        }
+    }
+
+    private async Task ShowAddingNewEmployee()
+    {
+        isAddingNewEmployee = true;
+        _positions = await positionService.GetPositionsAsync();
+
+        employeeToAdd = new Employee();
+        employeeToAdd.Position = _positions.FirstOrDefault();
+        employeeToAdd.PositionId = employeeToAdd.Position.Id;
+
+        StateHasChanged();
+    }
+
+    private async Task<List<Employee>> GetEmployeesAsync()
+    {
+        return await employeeService.GetEmployeesAsync();
+    }
+
+    private async Task<List<Position>> GetPositionsAsync()
+    {
+        return await positionService.GetPositionsAsync();
+    }
+
+    private async Task Submit()
+    {
+        try
+        {
+            if (employeeToAdd.Id == 0)
+            {
+                await employeeService.InsertEmployeeAsync(employeeToAdd);
+            }
+            else
+            {
+                await employeeService.UpdateEmployeeAsync(employeeToAdd);
+            }
+
+            resultModal.ResultText = "Operation has finished successfuly";
+            resultModal.ResultType = "Success";
+
+            resultModal.Refresh();
+
+            await JSRuntime.InvokeVoidAsync("showResultModal");
+
+            isAddingNewEmployee = false;
+
+            _employees = await GetEmployeesAsync();
+        }
+        catch (ArgumentException ex)
+        {
+            resultModal.ResultText = ex.Message;
+            resultModal.ResultType = "Error";
+
+            resultModal.Refresh();
+
+            await JSRuntime.InvokeVoidAsync("showResultModal");
+        }
+        catch (Exception ex)
+        {
+            resultModal.ResultText = "Some Error Happened";
+            resultModal.ResultType = "Error";
+
+            resultModal.Refresh();
+
+            await JSRuntime.InvokeVoidAsync("showResultModal");
+        }
+    }
+
+    private async Task HandleFileSelection(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.GetMultipleFiles().FirstOrDefault();
+
+        _employees = await GetEmployeesAsync();
+        _positions = await GetPositionsAsync();
+    }
+
+    private async Task ReadJsonFile()
+    {
+        _positions = await GetPositionsAsync();
+
+        try
+        {
+            if (selectedFile != null)
+            {
+                var stream = selectedFile.OpenReadStream();
+                using var reader = new StreamReader(stream);
+                jsonContent = await reader.ReadToEndAsync();
+
+                var uploadedEmployees = JsonSerializer.Deserialize<EmployeeJSONModel>(jsonContent);
+
+                foreach (var uploadedEmployee in uploadedEmployees.Employees)
+                {
+                    try
+                    {
+                        var positionToAssign = _positions.FirstOrDefault(p => p.Name.Contains(uploadedEmployee.Position));
+
+                        if (positionToAssign == null)
+                        {
+                            continue;
+                        }
+
+                        employeeToAdd = new Employee()
+                        {
+                            Name = uploadedEmployee.Name,
+                            Surname = uploadedEmployee.Surname,
+                            BirthDate = DateOnly.FromDateTime(DateTime.Parse(uploadedEmployee.BirthDate)),
+                            IpAddress = uploadedEmployee.IpAddress,
+                            IpCountryCode = "123",
+                            Position = positionToAssign,
+                            PositionId = positionToAssign.Id
+                        };
+
+                        await employeeService.InsertEmployeeAsync(employeeToAdd);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        continue;
+                    }
+                }
+
+                resultModal.ResultText = "Employees were uploaded successfuly";
+                resultModal.ResultType = "Success";
+
+                resultModal.Refresh();
+
+                await JSRuntime.InvokeVoidAsync("showResultModal");
+            }
+        }
+        catch (Exception ex)
+        {
+            resultModal.ResultText = "Looks like the JSON you've provided is invalid. Please recheck it";
+            resultModal.ResultType = "Error";
+
+            resultModal.Refresh();
+
+            await JSRuntime.InvokeVoidAsync("showResultModal");
+        }
+
+        _employees = await GetEmployeesAsync();
+        _positions = await GetPositionsAsync();
+    }
+
+    private async Task ShowUpdatingEmployee(int employeeId)
+    {
+        isAddingNewEmployee = true;
+
+        _positions = await positionService.GetPositionsAsync();
+
+        employeeToAdd = await employeeService.GetEmployeeAsync(employeeId);
+
+        StateHasChanged();
+    }
+
+}
